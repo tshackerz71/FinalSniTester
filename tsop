@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Colors for output
+green="\e[32m"
+red="\e[31m"
+yellow="\e[33m"
+reset="\e[0m"
+
+# Input file check
+if [ -z "$1" ]; then
+    echo "Usage: $0 domains.txt"
+    exit 1
+fi
+
+echo -e "${yellow}[*] Starting SNI Tunnel Test...${reset}"
+
+while read host; do
+    [ -z "$host" ] && continue  # skip empty lines
+
+    echo -ne "[TEST] $host ... "
+
+    # 1️⃣ TLS Handshake Test
+    if ! echo | openssl s_client -connect "$host:443" -servername "$host" -brief 2>/dev/null | grep -q "Protocol"; then
+        echo -e "${red}❌ TLS Fail${reset}"
+        continue
+    fi
+
+    # 2️⃣ HTTP 200 Test
+    status_code=$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://$host")
+    if [ "$status_code" != "200" ] && [ "$status_code" != "301" ] && [ "$status_code" != "302" ]; then
+        echo -e "${red}❌ HTTP Fail ($status_code)${reset}"
+        continue
+    fi
+
+    # 3️⃣ Tunnel Payload Simulation (send fake SSH/VPN bytes)
+    payload_result=$(echo -e "SSH-2.0-OpenSSH_8.9\n\n" | openssl s_client -connect "$host:443" -servername "$host" 2>/dev/null | grep -i "ssh")
+    if [ -n "$payload_result" ]; then
+        echo -e "${green}✅ REAL Tunnel Host${reset}"
+    else
+        echo -e "${yellow}⚠️ Works for HTTPS, may block tunnel${reset}"
+    fi
+
+done < "$1"
